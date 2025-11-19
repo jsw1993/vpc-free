@@ -207,17 +207,34 @@ def do_vpc(vpc_name):
         sys.stderr.write('VPC not found\n')
         sys.exit(1)
 
-    vpc_r = cidr_to_range(vpc['CidrBlock'])
+    # Collect all CIDR blocks for this VPC (primary + additional)
+    cidr_blocks = [vpc['CidrBlock']]
+    if 'CidrBlockAssociationSet' in vpc:
+        for assoc in vpc['CidrBlockAssociationSet']:
+            if assoc['CidrBlockState']['State'] == 'associated':
+                cidr = assoc['CidrBlock']
+                if cidr not in cidr_blocks:
+                    cidr_blocks.append(cidr)
+
     subnets = EC2.describe_subnets(Filters=[{
         'Name': 'vpc-id', 'Values': [vpc['VpcId']]
     }])['Subnets']
-    taken = []
-    for subnet in subnets:
-        name = name_by_id(subnet, 'SubnetId')
-        subnet_r = cidr_to_range(subnet['CidrBlock'], name)
-        taken.append(subnet_r)
 
-    print_blocks(get_free(vpc_r, taken))
+    # Process each CIDR block separately
+    for cidr_block in cidr_blocks:
+        if len(cidr_blocks) > 1:
+            sys.stdout.write('\nCIDR Block: {}\n'.format(cidr_block))
+        
+        vpc_r = cidr_to_range(cidr_block)
+        taken = []
+        for subnet in subnets:
+            subnet_r = cidr_to_range(subnet['CidrBlock'])
+            # Only include subnets that overlap with this CIDR block
+            if is_overlap(vpc_r, subnet_r):
+                name = name_by_id(subnet, 'SubnetId')
+                taken.append((subnet_r[0], subnet_r[1], name))
+
+        print_blocks(get_free(vpc_r, taken))
 
 def do_cidr(cidr):
     """

@@ -15,6 +15,7 @@ import boto3
 __version__ = '1.1.0'
 
 EC2 = boto3.client('ec2')
+CSV_MODE = False
 
 def get_vpc(vpcid):
     """
@@ -137,44 +138,55 @@ def get_free(parent, taken):
 
 def print_table(data, headers=None, colored=False):
     """
-    print_table prints the given dataset as a formatted table.
+    print_table prints the given dataset as a formatted table or CSV.
     """
 
-    first_column = 0
-    if colored:
-        first_column = 1
-    columns = [0]
-    def print_row(row):
-        """
-        print_row prints a single row in a dataset.
-        """
-
-        sys.stdout.write('\x1b[{}m'.format(row[0]))
-        for i in range(1, len(row)):
-            if i > 1:
-                sys.stdout.write(' ')
-            sys.stdout.write('%-*s' % (columns[i], row[i]))
-        sys.stdout.write('\x1b[0m\n')
-
-    if headers:
-        for i in range(0, len(headers)):
-            columns.append(len(headers[i]))
+    if CSV_MODE:
+        # CSV output
+        if headers:
+            sys.stdout.write(','.join(headers) + '\n')
+        
+        first_column = 1 if colored else 0
+        for row in data:
+            row_data = [str(row[i]).replace(',', ';') for i in range(first_column, len(row))]
+            sys.stdout.write(','.join(row_data) + '\n')
+    else:
+        # Original formatted table output
+        first_column = 0
         if colored:
-            headers.insert(0, '')
+            first_column = 1
+        columns = [0]
+        def print_row(row):
+            """
+            print_row prints a single row in a dataset.
+            """
 
-    for row in data:
-        for i in range(first_column, len(row)):
-            while len(columns) < len(row):
-                columns.append(0)
-            width = len(str(row[i]))
-            if columns[i] < width:
-                columns[i] = width
+            sys.stdout.write('\x1b[{}m'.format(row[0]))
+            for i in range(1, len(row)):
+                if i > 1:
+                    sys.stdout.write(' ')
+                sys.stdout.write('%-*s' % (columns[i], row[i]))
+            sys.stdout.write('\x1b[0m\n')
 
-    if headers:
-        print_row(headers)
+        if headers:
+            for i in range(0, len(headers)):
+                columns.append(len(headers[i]))
+            if colored:
+                headers.insert(0, '')
 
-    for row in data:
-        print_row(row)
+        for row in data:
+            for i in range(first_column, len(row)):
+                while len(columns) < len(row):
+                    columns.append(0)
+                width = len(str(row[i]))
+                if columns[i] < width:
+                    columns[i] = width
+
+        if headers:
+            print_row(headers)
+
+        for row in data:
+            print_row(row)
 
     sys.stdout.flush()
 
@@ -257,14 +269,22 @@ def main():
     main executes the main thread.
     """
 
+    global CSV_MODE
+
     parser = argparse.ArgumentParser(
         description='Find free IP blocks in AWS EC2.')
 
     parser.add_argument('target',
                         metavar='TARGET',
                         help='CIDR, VPC ID or VPC Name to search')
+    
+    parser.add_argument('--csv',
+                        action='store_true',
+                        help='Output in CSV format')
 
     args = parser.parse_args()
+    
+    CSV_MODE = args.csv
 
     if match(r"^[0-9\.]+/[0-9]+$", args.target):
         do_cidr(args.target)
